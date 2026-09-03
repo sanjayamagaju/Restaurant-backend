@@ -25,7 +25,11 @@ def build_order_items(items_input):
     whole order is rejected rather than silently dropping bad lines.
     """
     menu_item_ids = {entry['menuItemId'] for entry in items_input}
-    menu_items = MenuItem.objects.filter(id__in=menu_item_ids).prefetch_related('option_groups__options')
+    menu_items = (
+        MenuItem.objects.filter(id__in=menu_item_ids)
+        .select_related('category')
+        .prefetch_related('option_groups__options')
+    )
     menu_items_by_id = {item.id: item for item in menu_items}
 
     prepared = []
@@ -108,6 +112,7 @@ def build_order_items(items_input):
             'base_price_snapshot': menu_item.price,
             'unit_price_snapshot': unit_price,
             'selected_options_snapshot': snapshot,
+            'category_name_snapshot': menu_item.category.name if menu_item.category else '',
         })
 
     return prepared, total

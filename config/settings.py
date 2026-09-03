@@ -133,7 +133,10 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# The restaurant's local calendar. Analytics day boundaries and hour/weekday
+# grouping follow this setting (see restaurant/analytics.py), so reports match
+# the trading day staff actually worked rather than UTC's.
+TIME_ZONE = 'Asia/Kathmandu'
 
 USE_I18N = True
 

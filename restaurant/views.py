@@ -5,10 +5,12 @@ from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from .models import MenuCategory, MenuItem, MenuItemOption, MenuItemOptionGroup, Order, OrderItem, Table
+from .models import (
+    MenuCategory, MenuItem, MenuItemOption, MenuItemOptionGroup, Order, OrderFeedback, OrderItem, Table,
+)
 from .serializers import (
     MenuCategorySerializer, MenuItemOptionGroupSerializer, MenuItemOptionSerializer, MenuItemSerializer,
-    OrderSerializer, OrderItemSerializer, TableSerializer,
+    OrderFeedbackSerializer, OrderSerializer, OrderItemSerializer, TableSerializer,
 )
 
 
@@ -86,10 +88,26 @@ class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
 
     def get_permissions(self):
-        if self.action in ('create', 'retrieve'):
-            # Customers place orders anonymously and track their own order by id.
+        if self.action in ('create', 'retrieve', 'feedback'):
+            # Customers place orders anonymously, track their own order by id,
+            # and rate it once it is done.
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
+
+    @action(detail=True, methods=['post'], url_path='feedback')
+    def feedback(self, request, pk=None):
+        order = self.get_object()
+        if order.status != Order.STATUS_COMPLETED:
+            return Response(
+                {'detail': 'Feedback can only be left once the order is completed.'}, status=400,
+            )
+        if OrderFeedback.objects.filter(order=order).exists():
+            return Response({'detail': 'Feedback has already been submitted for this order.'}, status=400)
+
+        serializer = OrderFeedbackSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(order=order)
+        return Response(serializer.data, status=201)
 
 
 class OrderItemViewSet(mixins.UpdateModelMixin, viewsets.GenericViewSet):

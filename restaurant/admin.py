@@ -1,7 +1,7 @@
 from django.contrib import admin
 
 from .models import (
-    MenuCategory, MenuItem, MenuItemOption, MenuItemOptionGroup, Order, OrderItem, Table,
+    MenuCategory, MenuItem, MenuItemOption, MenuItemOptionGroup, Order, OrderFeedback, OrderItem, Table,
 )
 
 
@@ -10,6 +10,7 @@ class OrderItemInline(admin.TabularInline):
     extra = 0
     readonly_fields = [
         'item_name_snapshot', 'base_price_snapshot', 'unit_price_snapshot', 'selected_options_snapshot',
+        'category_name_snapshot',
     ]
 
 
@@ -50,10 +51,17 @@ class MenuItemOptionGroupAdmin(admin.ModelAdmin):
     inlines = [MenuItemOptionInline]
 
 
+@admin.register(OrderFeedback)
+class OrderFeedbackAdmin(admin.ModelAdmin):
+    list_display = ['order', 'rating', 'created_at']
+    list_filter = ['rating']
+    readonly_fields = ['created_at']
+
+
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = ['id', 'table_number', 'total_amount', 'status', 'created_at']
-    list_filter = ['status']
+    list_filter = ['status', 'cancellation_reason']
     readonly_fields = [
         'accepted_at', 'preparing_at', 'ready_at', 'served_at', 'completed_at', 'cancelled_at',
     ]

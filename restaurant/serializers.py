@@ -5,7 +5,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from .models import (
-    MenuCategory, MenuItem, MenuItemOption, MenuItemOptionGroup, Order, OrderItem, Table,
+    MenuCategory, MenuItem, MenuItemOption, MenuItemOptionGroup, Order, OrderFeedback, OrderItem, Table,
 )
 from .pricing import build_order_items
 
@@ -187,6 +187,10 @@ class OrderSerializer(serializers.ModelSerializer):
     specialInstructions = serializers.CharField(
         source='special_instructions', required=False, allow_blank=True
     )
+    cancellationReason = serializers.ChoiceField(
+        source='cancellation_reason', choices=Order.CANCELLATION_REASON_CHOICES,
+        required=False, allow_blank=True,
+    )
     createdAt = serializers.DateTimeField(source='created_at', read_only=True)
     acceptedAt = serializers.DateTimeField(source='accepted_at', read_only=True)
     preparingAt = serializers.DateTimeField(source='preparing_at', read_only=True)
@@ -198,7 +202,8 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            'id', 'tableNumber', 'items', 'totalAmount', 'specialInstructions', 'status', 'createdAt',
+            'id', 'tableNumber', 'items', 'totalAmount', 'specialInstructions', 'status',
+            'cancellationReason', 'createdAt',
             'acceptedAt', 'preparingAt', 'readyAt', 'servedAt', 'completedAt', 'cancelledAt',
         ]
 
@@ -222,6 +227,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         items_input = validated_data.pop('_items_input')
+        validated_data.pop('cancellation_reason', None)
         validated_data['status'] = Order.STATUS_NEW
         with transaction.atomic():
             prepared_items, total = build_order_items(items_input)
@@ -235,6 +241,10 @@ class OrderSerializer(serializers.ModelSerializer):
         validated_data.pop('items', None)
         validated_data.pop('_items_input', None)
         new_status = validated_data.pop('status', None)
+        # A reason only means anything on the transition into CANCELLED; ignore it
+        # elsewhere so an unrelated PATCH can't label a live order as cancelled-for-X.
+        if new_status != Order.STATUS_CANCELLED:
+            validated_data.pop('cancellation_reason', None)
         if new_status and new_status != instance.status:
             try:
                 instance.transition_to(new_status)
@@ -244,3 +254,25 @@ class OrderSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         return instance
+
+
+class OrderFeedbackSerializer(serializers.ModelSerializer):
+    """Customer rating of a completed order.
+
+    The order is taken from the URL, not the payload, so a diner can only rate
+    the order they are tracking.
+    """
+
+    orderId = serializers.IntegerField(source='order_id', read_only=True)
+    createdAt = serializers.DateTimeField(source='created_at', read_only=True)
+
+    class Meta:
+        model = OrderFeedback
+        fields = ['id', 'orderId', 'rating', 'comment', 'createdAt']
+
+    def validate_rating(self, value):
+        if not OrderFeedback.RATING_MIN <= value <= OrderFeedback.RATING_MAX:
+            raise serializers.ValidationError(
+                f'Rating must be between {OrderFeedback.RATING_MIN} and {OrderFeedback.RATING_MAX}.'
+            )
+        return value

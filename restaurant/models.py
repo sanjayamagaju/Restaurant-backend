@@ -1,6 +1,7 @@
 import uuid
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -139,6 +140,16 @@ class Order(models.Model):
         STATUS_CANCELLED: set(),
     }
 
+    REASON_CUSTOMER_REQUEST = 'CUSTOMER_REQUEST'
+    REASON_ITEM_UNAVAILABLE = 'ITEM_UNAVAILABLE'
+    REASON_OTHER = 'OTHER'
+
+    CANCELLATION_REASON_CHOICES = [
+        (REASON_CUSTOMER_REQUEST, 'Customer request'),
+        (REASON_ITEM_UNAVAILABLE, 'Unavailable item'),
+        (REASON_OTHER, 'Other'),
+    ]
+
     # Maps a status to the timestamp field that should be stamped when it is entered.
     STATUS_TIMESTAMP_FIELD = {
         STATUS_ACCEPTED: 'accepted_at',
@@ -153,6 +164,11 @@ class Order(models.Model):
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
     special_instructions = models.TextField(blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_NEW)
+    # Only meaningful once an order reaches CANCELLED; blank for orders cancelled
+    # before reasons were captured, so historical rows are never back-filled with a guess.
+    cancellation_reason = models.CharField(
+        max_length=20, choices=CANCELLATION_REASON_CHOICES, blank=True, default='',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     accepted_at = models.DateTimeField(null=True, blank=True)
     preparing_at = models.DateTimeField(null=True, blank=True)
@@ -204,6 +220,9 @@ class OrderItem(models.Model):
     base_price_snapshot = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     unit_price_snapshot = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     selected_options_snapshot = models.JSONField(default=list, blank=True)
+    # Frozen so category analytics stay historically correct if an item is later
+    # moved to a different category, or its category is renamed/deleted.
+    category_name_snapshot = models.CharField(max_length=100, blank=True, default='')
 
     def __str__(self):
         return f'{self.quantity} x {self.menu_item.name}'
@@ -211,3 +230,28 @@ class OrderItem(models.Model):
     @property
     def item_total(self):
         return self.unit_price_snapshot * self.quantity
+
+
+class OrderFeedback(models.Model):
+    """A customer's rating of a completed order.
+
+    Anonymous by design - the only link back to the diner is the order itself,
+    so analytics can surface ratings and comments without exposing identity.
+    """
+
+    RATING_MIN = 1
+    RATING_MAX = 5
+
+    order = models.OneToOneField(Order, related_name='feedback', on_delete=models.CASCADE)
+    rating = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(RATING_MIN), MaxValueValidator(RATING_MAX)],
+    )
+    comment = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name_plural = 'order feedback'
+
+    def __str__(self):
+        return f'Order #{self.order_id} - {self.rating}/5'
